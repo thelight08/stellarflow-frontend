@@ -214,6 +214,30 @@ export const NAVIGATION_COMMANDS: readonly CommandItem[] = [
     iconId: ICON_IDS.shield,
     href: "/admin/settings",
   },
+  {
+    id: "page:rpc-benchmark",
+    kind: "page",
+    title: "RPC Benchmark",
+    subtitle: "/rpc-benchmark",
+    keywords: [
+      "rpc", "endpoint", "latency", "speed", "benchmark", "soroban",
+      "node", "ping", "fastest", "network", "performance", "private",
+    ],
+    iconId: ICON_IDS.signal,
+    href: "/rpc-benchmark",
+  },
+  {
+    id: "page:trading",
+    kind: "page",
+    title: "Multi-Chart Trading View",
+    subtitle: "/trading",
+    keywords: [
+      "charts", "candles", "candlestick", "multi chart", "grid", "quad",
+      "split", "timeframe", "watchlist", "pairs", "trading view",
+    ],
+    iconId: ICON_IDS.lineChart,
+    href: "/trading",
+  },
 ];
 
 /**

@@ -8,12 +8,15 @@ import { MapSkeleton } from "@/components/skeletons/MapSkeleton";
 import { RateSparklineSkeleton } from "@/components/skeletons/RateSparklineSkeleton";
 import { PriceFeedCardSkeleton } from "@/components/skeletons/PriceFeedCardSkeleton";
 import { DashboardTrafficChartSkeleton } from "@/components/skeletons/DashboardTrafficChartSkeleton";
+import { SkeletonChart } from "@/components/skeletons/SkeletonChart";
+import { DEFAULT_DEPTH_CHART_HEIGHT } from "@/components/trading/CumulativeDepthChart.constants";
 import { useMounted } from "@/app/hooks/useMounted";
 import WebSocketTest from "./components/test/WebSocketTest";
 import { CorridorProvider } from "@/context/CorridorContext";
 import { TelemetryProvider } from "@/context/TelemetryContext";
 import { ASSET_SYMBOLS } from "@/config/assetSymbols";
 import { ErrorBoundary } from "@/components/ui";
+import GasPriceEstimator from "./components/GasPriceEstimator";
 
 const LiveNetworkMap = dynamic(() => import("@/app/components/Map"), {
   ssr: false,
@@ -38,6 +41,14 @@ const OrderBookFeed = dynamic(() => import("./components/OrderBookFeed"), {
   loading: () => <PriceFeedCardSkeleton />,
 });
 
+const CumulativeDepthChart = dynamic(
+  () => import("@/components/trading/CumulativeDepthChart").then((m) => m.CumulativeDepthChart),
+  {
+    ssr: false,
+    loading: () => <SkeletonChart variant="orderbook" height={DEFAULT_DEPTH_CHART_HEIGHT} />,
+  },
+);
+
 const RpcHealthPanel = dynamic(
   () => import("@/components/rpc/RpcHealthIndicator").then((m) => m.RpcHealthPanel),
   { ssr: false, loading: () => <PriceFeedCardSkeleton /> },
@@ -49,6 +60,11 @@ const DashboardTrafficChart = dynamic(
     ssr: false,
     loading: () => <DashboardTrafficChartSkeleton />,
   },
+);
+
+const NetworkHealthWidget = dynamic(
+  () => import("@/components/common/NetworkHealthWidget"),
+  { ssr: false, loading: () => <PriceFeedCardSkeleton /> }
 );
 
 interface RateCard {
@@ -293,6 +309,14 @@ export default function DashboardInteractive({
         <RateCardSection rateCards={rateCards} cardsReady={cardsReady} />
       </ErrorBoundary>
 
+      <ErrorBoundary name="GasPriceEstimator">
+        <GasPriceEstimator />
+      </ErrorBoundary>
+
+      <ErrorBoundary name="NetworkHealthWidget">
+        <NetworkHealthWidget />
+      </ErrorBoundary>
+
       {/*
         TelemetryProvider — leaf boundary for live socket stream state.
         Only components inside this subtree (PriceFeedCard, WebSocketTest)
@@ -315,6 +339,12 @@ export default function DashboardInteractive({
             <RpcHealthPanel />
           </div>
         </section>
+
+        <ErrorBoundary name="CumulativeDepthChart">
+          <section className="min-w-0">
+            <CumulativeDepthChart assetId={ASSET_SYMBOLS.NGN_XLM} />
+          </section>
+        </ErrorBoundary>
 
         {/* WebSocket Test Component */}
         <ErrorBoundary name="WebSocketTest">

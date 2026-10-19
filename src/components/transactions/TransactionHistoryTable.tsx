@@ -7,6 +7,8 @@ import { useToast } from "@/components/ui/ToastQueue";
 import { exportTransactionsToCsv, type TaxPlatform } from "@/utils/csvExport";
 import { useTransactionHistoryWithFallback } from "@/app/hooks/useTransactionHistory";
 import type { TransactionRecord, TransactionType } from "@/types/transactions";
+import { TransactionHistoryTableSkeleton } from "@/components/skeletons/TransactionHistoryTableSkeleton";
+import { SocialShareModal, type SocialShareData } from "@/components/common";
 
 const TYPE_FILTERS: { label: string; value: "all" | TransactionType }[] = [
   { label: "All Activity", value: "all" },
@@ -15,14 +17,8 @@ const TYPE_FILTERS: { label: string; value: "all" | TransactionType }[] = [
   { label: "Remittances", value: "remittance" },
 ];
 
-const EXPORT_PLATFORMS: { label: string; value: TaxPlatform }[] = [
-  { label: "Standard CSV", value: "standard" },
-  { label: "Koinly", value: "koinly" },
-  { label: "CoinTracker", value: "cointracker" },
-];
-
 const STATUS_STYLES: Record<TransactionRecord["status"], string> = {
-  completed: "bg-emerald-400/10 text-emerald-400",
+  completed: "bg-emerald-410/10 text-emerald-400",
   pending: "bg-yellow-500/10 text-yellow-500",
   failed: "bg-red-500/10 text-red-500",
 };
@@ -39,12 +35,56 @@ function truncateHash(hash: string): string {
   return `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 }
 
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function toCsvRow(tx: TransactionRecord): string {
+  // Select the relevant amount and asset.
+  // For swaps and liquidity, receivedAmount represents what the user receives.
+  // For remittances, we use the sent amount (or received if it's incoming).
+  const amount =
+    tx.receivedAmount > 0 ? tx.receivedAmount : tx.sentAmount;
+  const asset =
+    tx.receivedAmount > 0 ? tx.receivedCurrency : tx.sentCurrency;
+
+  return [
+    csvEscape(formatDate(tx.date)),
+    csvEscape(tx.txHash),
+    csvEscape(tx.type),
+    csvEscape(String(amount)),
+    csvEscape(asset),
+    csvEscape(tx.status),
+  ].join(",");
+}
+
+function generateCsv(transactions: TransactionRecord[]): string {
+  const header = ["Date", "Tx Hash", "Type", "Amount", "Asset", "Status"];
+  const rows = transactions.map(toCsvRow);
+  return [header.join(","), ...rows].join("\n");
+}
+
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export default function TransactionHistoryTable() {
   const { data: transactions, isLoading } = useTransactionHistoryWithFallback();
   const { addToast, updateToast } = useToast();
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all");
-  const [exportPlatform, setExportPlatform] = useState<TaxPlatform>("standard");
   const [isExporting, setIsExporting] = useState(false);
+  const [shareData, setShareData] = useState<SocialShareData | null>(null);
 
   const filteredTransactions = useMemo(
     () =>
@@ -60,15 +100,17 @@ export default function TransactionHistoryTable() {
     setIsExporting(true);
     const toastId = addToast({
       title: "Preparing CSV export",
-      description: `Formatting ${filteredTransactions.length} transactions for ${EXPORT_PLATFORMS.find(p => p.value === exportPlatform)?.label}…`,
+      description: `Formatting ${filteredTransactions.length} transactions…`,
       status: "processing",
     });
 
     try {
-      await exportTransactionsToCsv(filteredTransactions, { platform: exportPlatform });
+      const csv = generateCsv(filteredTransactions);
+      const filename = `transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadCsv(csv, filename);
       updateToast(toastId, {
         title: "Export ready",
-        description: `${filteredTransactions.length} transactions downloaded as ${EXPORT_PLATFORMS.find(p => p.value === exportPlatform)?.label} CSV.`,
+        description: `${filteredTransactions.length} transactions downloaded as CSV.`,
         status: "confirmed",
       });
     } catch {
@@ -81,6 +123,10 @@ export default function TransactionHistoryTable() {
       setIsExporting(false);
     }
   };
+
+  if (isLoading) {
+    return <TransactionHistoryTableSkeleton />;
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-800 bg-[#161b22] text-gray-100">
@@ -107,20 +153,6 @@ export default function TransactionHistoryTable() {
             ))}
           </select>
 
-          <select
-            value={exportPlatform}
-            onChange={(event) =>
-              setExportPlatform(event.target.value as TaxPlatform)
-            }
-            className="rounded-md border border-gray-700 bg-[#0d1117] px-3 py-2 text-sm text-gray-300 focus:border-blue-500 focus:outline-none"
-          >
-            {EXPORT_PLATFORMS.map((platform) => (
-              <option key={platform.value} value={platform.value}>
-                {platform.label}
-              </option>
-            ))}
-          </select>
-
           <button
             type="button"
             onClick={handleExport}
@@ -142,11 +174,7 @@ export default function TransactionHistoryTable() {
         <div className="px-6 py-3 text-right font-medium">TxHash</div>
       </div>
 
-      {isLoading ? (
-        <div className="px-6 py-16 text-center text-sm text-gray-500">
-          Loading transaction history…
-        </div>
-      ) : filteredTransactions.length === 0 ? (
+      {filteredTransactions.length === 0 ? (
         <div className="px-6 py-16 text-center text-sm text-gray-500">
           No transactions match this filter.
         </div>
@@ -158,32 +186,57 @@ export default function TransactionHistoryTable() {
           >
             <div className="px-6 py-4 text-gray-400">{formatDate(tx.date)}</div>
             <div className="px-6 py-4 capitalize text-gray-200">{tx.type}</div>
-            <div className="px-6 py-4 text-gray-200">
-              {tx.sentAmount.toLocaleString()} {tx.sentCurrency}
+            <div className="px-6 py-4 text-gray-300">
+              {tx.sentAmount} {tx.sentCurrency}
             </div>
-            <div className="px-6 py-4 text-gray-200">
-              {tx.receivedAmount.toLocaleString()} {tx.receivedCurrency}
+            <div className="px-6 py-4 text-gray-300">
+              {tx.receivedAmount} {tx.receivedCurrency}
             </div>
             <div className="px-6 py-4 text-gray-400">
               {tx.fee} {tx.feeCurrency}
             </div>
-            <div className="flex items-center justify-end gap-2 px-6 py-4">
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_STYLES[tx.status]}`}
+            <div className="px-6 py-4 text-right">
+              <a
+                href={`https://stellar.expert/explorer/public/tx/${tx.txHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-blue-400 hover:underline"
               >
-                {tx.status}
-              </span>
-              <span className="text-blue-500">{truncateHash(tx.txHash)}</span>
+                {truncateHash(tx.txHash)}
+                <span className={`ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-sans font-medium uppercase ${STATUS_STYLES[tx.status]}`}>
+                  {tx.status}
+                </span>
+              </a>
+              {tx.type === "swap" && tx.status === "completed" && (
+                <button
+                  type="button"
+                  onClick={() => setShareData({
+                    type: "trade",
+                    title: `${tx.sentCurrency} to ${tx.receivedCurrency} swap completed`,
+                    fromSymbol: tx.sentCurrency,
+                    fromAmount: tx.sentAmount.toLocaleString(),
+                    toSymbol: tx.receivedCurrency,
+                    toAmount: tx.receivedAmount.toLocaleString(),
+                    timestamp: `${new Date(tx.date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC`,
+                    txHash: tx.txHash,
+                  })}
+                  className="mt-1 inline-flex items-center rounded px-2 py-1 font-sans text-xs text-cyan-300 transition-colors hover:bg-cyan-950/60 hover:text-cyan-200"
+                  aria-label={`Share completed ${tx.sentCurrency} to ${tx.receivedCurrency} swap`}
+                >
+                  Share
+                </button>
+              )}
             </div>
           </div>
         ))
       )}
-
-      <div className="flex items-center justify-between border-t border-gray-800 p-4 text-sm text-gray-500">
-        <span>
-          Showing {filteredTransactions.length} of {transactions.length} transactions
-        </span>
-      </div>
+      {shareData && (
+        <SocialShareModal
+          isOpen
+          onClose={() => setShareData(null)}
+          shareData={shareData}
+        />
+      )}
     </div>
   );
 }
